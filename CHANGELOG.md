@@ -1,3 +1,17 @@
+## [0.2.0] - 2026-10-13
+
+### Added
+- `compare_models(models, *, system, user, history, expected_completion, tools_tokens, safety_margin, cost_per_million, model_limits)`
+  runs `plan()` across many models and returns a list of
+  `(model, Budget, estimated_cost_usd_or_None)` tuples sorted by
+  `fits` (desc), then `remaining` (desc), then `cost` (asc).
+- `COST_PER_MILLION` catalogue: USD per 1M input/output tokens for
+  the 2026-Q4 frontier set (OpenAI, Anthropic, Google, Meta, Mistral,
+  DeepSeek). Mutable at runtime; pass your own dict to
+  `compare_models(cost_per_million=...)` to override.
+- 10 new tests in `test_tiny_llm_budget_v020.py` covering compare,
+  cost estimation, input/output split, history-as-input, sorting,
+  and the cost catalogue invariants.
 # Changelog
 
 All notable changes to `tiny-llm-budget` are documented here.

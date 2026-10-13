@@ -97,6 +97,30 @@ Unknown models default to 8k (conservative).
 - `MODEL_LIMITS` (dict, mutable)
 - `register_model(name, max_tokens)`
 
-## License
+
+## v0.2.0 — compare_models() + cost catalogue
+
+```python
+from tiny_llm_budget import compare_models, COST_PER_MILLION
+
+results = compare_models(
+    ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet"],
+    system="You are a helpful assistant.",
+    user=user_message,
+    history=[("user", prev_user), ("assistant", prev_resp)],
+    expected_completion=500,
+    cost_per_million=COST_PER_MILLION,
+)
+
+for model, budget, cost in results:
+    print(f"{model}: fits={budget.fits} remaining={budget.remaining} cost=${cost}")
+```
+
+Returns a list sorted by `fits` (desc), then `remaining` (desc), then
+`cost` (asc). The first tuple is the recommended pick. Pass a custom
+`cost_per_million={name: (in, out)}` dict to override the embedded
+catalogue — useful for negotiated enterprise rates or new releases.
+
+## Licence
 
 MIT

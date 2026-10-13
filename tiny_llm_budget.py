@@ -70,12 +70,14 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Sequence, Tuple
 
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     "Budget",
+    "COST_PER_MILLION",
     "MODEL_LIMITS",
     "Segment",
+    "compare_models",
     "count_tokens",
     "plan",
     "register_model",
@@ -273,6 +275,97 @@ def plan(
         segments=tuple(segments),
         strategy=strategy,
     )
+
+
+def compare_models(
+    models: Sequence[str],
+    *,
+    system: str = "",
+    user: str = "",
+    history: Optional[HistoryLike] = None,
+    expected_completion: int = 0,
+    tools_tokens: int = 0,
+    safety_margin: float = 0.0,
+    cost_per_million: Optional[Mapping[str, tuple]] = None,
+    model_limits: Optional[Mapping[str, int]] = None,
+) -> list:
+    """Run :func:`plan` across multiple models and return sorted results.
+
+    ``cost_per_million`` is an optional ``{model_name: (input_per_million, output_per_million)}``
+    dict. If provided, the result includes an ``estimated_cost_usd`` field
+    computed from the input tokens (system + history + user + tools) and
+    the expected completion tokens at the model's published rates.
+
+    Returns a list of ``(model, Budget, estimated_cost_usd_or_None)`` tuples
+    sorted by ``fits`` first (descending), then ``remaining`` (descending),
+    then ``estimated_cost_usd`` (ascending).
+    """
+    results = []
+    for m in models:
+        b = plan(
+            m,
+            system=system,
+            user=user,
+            history=history,
+            expected_completion=expected_completion,
+            tools_tokens=tools_tokens,
+            safety_margin=safety_margin,
+            model_limits=model_limits,
+        )
+        cost = _estimate_cost(b, cost_per_million) if cost_per_million else None
+        results.append((m, b, cost))
+    # Sort: fits first, then most remaining, then cheapest
+    results.sort(key=lambda r: (not r[1].fits, -r[1].remaining, r[2] if r[2] is not None else float("inf")))
+    return results
+
+
+def _estimate_cost(budget, cost_per_million):
+    """Return a float USD estimate for the budget, or None if rates unknown."""
+    rates = cost_per_million.get(budget.model)
+    if rates is None:
+        return None
+    in_rate, out_rate = rates  # USD per 1M tokens
+    # Segments: system, history, user, tools = "input"; expected_completion = "output".
+    input_tokens = 0
+    output_tokens = 0
+    for seg in budget.segments:
+        if seg.name == "expected_completion":
+            output_tokens += seg.tokens
+        else:
+            input_tokens += seg.tokens
+    return round((input_tokens / 1_000_000.0) * in_rate + (output_tokens / 1_000_000.0) * out_rate, 6)
+
+
+# Default cost catalogue (USD per 1M tokens, input/output) for the 2026-Q4 set.
+# Updated 2026-10-13.
+COST_PER_MILLION = {
+    # OpenAI
+    "gpt-4o": (2.50, 10.00),
+    "gpt-4o-mini": (0.15, 0.60),
+    "gpt-4-turbo": (10.00, 30.00),
+    "gpt-4": (30.00, 60.00),
+    "gpt-3.5-turbo": (0.50, 1.50),
+    "o1-preview": (15.00, 60.00),
+    "o1-mini": (3.00, 12.00),
+    # Anthropic
+    "claude-3-5-sonnet": (3.00, 15.00),
+    "claude-3-5-haiku": (0.80, 4.00),
+    "claude-3-opus": (15.00, 75.00),
+    "claude-3-sonnet": (3.00, 15.00),
+    "claude-3-haiku": (0.25, 1.25),
+    # Google
+    "gemini-1.5-pro": (1.25, 5.00),
+    "gemini-1.5-flash": (0.075, 0.30),
+    "gemini-2.0-flash-exp": (0.0, 0.0),  # free during experimental
+    # Meta / Llama (via Together / Fireworks, indicative)
+    "llama-3.1-405b": (3.00, 3.00),
+    "llama-3.1-70b": (0.88, 0.88),
+    "llama-3.1-8b": (0.18, 0.18),
+    # Mistral / DeepSeek
+    "mistral-large-2": (2.00, 6.00),
+    "mixtral-8x22b": (0.60, 0.60),
+    "deepseek-v3": (0.27, 1.10),
+}
 
 
 def _strategy_for(model_lc: str) -> str:
